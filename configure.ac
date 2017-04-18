@@ -1,4 +1,4 @@
-AC_INIT([rofi-file-browser], [0.0.1], [https://davedavenport.github.io/rofi/],[],[https://reddit.org/r/qtools/])
+AC_INIT([rofi-file_browser], [0.0.1], [https://davedavenport.github.io/rofi/],[],[https://reddit.org/r/qtools/])
 
 AC_CONFIG_HEADER([config.h])
 

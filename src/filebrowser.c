@@ -1,5 +1,5 @@
 /**
- * rofi-plugin-template
+ * rofi-file_browser
  *
  * MIT/X11 License
  * Copyright (c) 2017 Qball Cow <qball@gmpclient.org>
