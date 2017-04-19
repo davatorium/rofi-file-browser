@@ -206,6 +206,8 @@ static ModeMode file_browser_mode_result ( Mode *sw, int mretv, char **input, un
                 g_object_unref ( pd->current_dir );
                 pd->current_dir = g_file_new_for_path ( dir );
                 g_free ( dir );
+                free_list (pd);
+                get_file_browser ( sw );
                 return RESET_DIALOG;
             }
 
