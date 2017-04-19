@@ -29,6 +29,7 @@
 #include <string.h>
 #include <errno.h>
 #include <gmodule.h>
+#include <gio/gio.h>
 
 #include <rofi/mode.h>
 #include <rofi/helper.h>
@@ -42,6 +43,7 @@ G_MODULE_EXPORT Mode mode;
  * The internal data structure holding the private data of the TEST Mode.
  */
 enum FBFileType {
+    UP,
     DIRECTORY,
     RFILE,
 };
@@ -53,7 +55,7 @@ typedef struct {
 
 typedef struct
 {
-    char *current_dir;
+    GFile *current_dir;
     FBFile *array;
     unsigned int array_length;
 } FileBrowserModePrivateData;
@@ -77,7 +79,7 @@ static gint compare ( gconstpointer a, gconstpointer b, gpointer data )
     FBFile *fa = (FBFile*)a;
     FBFile *fb = (FBFile*)b;
     if ( fa->type != fb->type ){
-        return (fa->type == DIRECTORY)? -1:1;
+        return (fa->type - fb->type);
     }
 
     return g_strcmp0 ( fa->name, fb->name );
@@ -86,16 +88,25 @@ static gint compare ( gconstpointer a, gconstpointer b, gpointer data )
 static void get_file_browser (  Mode *sw )
 {
     FileBrowserModePrivateData *pd = (FileBrowserModePrivateData *) mode_get_private_data ( sw );
-    /** 
+    /**
      * Get the entries to display.
      * this gets called on plugin initialization.
      */
-    DIR *dir = opendir ( pd->current_dir );
+    char *cdir = g_file_get_path ( pd->current_dir );
+    DIR *dir = opendir ( cdir );
     if ( dir ) {
-        struct dirent *rd = NULL; 
+        struct dirent *rd = NULL;
         while ((rd = readdir (dir)) != NULL )
         {
             if ( g_strcmp0 ( rd->d_name, ".." ) == 0 ){
+                    pd->array = g_realloc ( pd->array, (pd->array_length+1)*sizeof(FBFile));
+                    // Rofi expects utf-8, so lets convert the filename.
+                    pd->array[pd->array_length].name = g_strdup ( ".." );
+                    pd->array[pd->array_length].path = NULL;
+                    pd->array[pd->array_length].type = UP;
+                    pd->array_length++;
+                    continue;
+
             } else if ( rd->d_name[0] == '.' ) {
                 continue;
             }
@@ -111,10 +122,11 @@ static void get_file_browser (  Mode *sw )
                 case DT_REG:
                 case DT_DIR:
                     pd->array = g_realloc ( pd->array, (pd->array_length+1)*sizeof(FBFile));
-                    pd->array[pd->array_length].name = g_strdup ( rd->d_name );
-                    pd->array[pd->array_length].path = g_build_filename ( pd->current_dir, rd->d_name, NULL );
+                    // Rofi expects utf-8, so lets convert the filename.
+                    pd->array[pd->array_length].name = g_filename_to_utf8 ( rd->d_name, -1, NULL, NULL, NULL);
+                    pd->array[pd->array_length].path = g_build_filename ( cdir, rd->d_name, NULL );
                     pd->array[pd->array_length].type = (rd->d_type == DT_DIR)? DIRECTORY: RFILE;
-                    pd->array_length++; 
+                    pd->array_length++;
             }
         }
         closedir ( dir );
@@ -131,7 +143,7 @@ static int file_browser_mode_init ( Mode *sw )
     if ( mode_get_private_data ( sw ) == NULL ) {
         FileBrowserModePrivateData *pd = g_malloc0 ( sizeof ( *pd ) );
         mode_set_private_data ( sw, (void *) pd );
-        pd->current_dir = g_strdup(g_get_home_dir () );
+        pd->current_dir = g_file_new_for_path(g_get_home_dir () );
         // Load content.
         get_file_browser ( sw );
     }
@@ -156,10 +168,19 @@ static ModeMode file_browser_mode_result ( Mode *sw, int mretv, char **input, un
     } else if ( ( mretv & MENU_OK ) ) {
         if ( selected_line < pd->array_length )
         {
-            if ( pd->array[selected_line].type == DIRECTORY ) {
-                g_free ( pd->current_dir );
-                pd->current_dir = pd->array[selected_line].path;
-                pd->array[selected_line].path = NULL;
+            if ( pd->array[selected_line].type == UP ) {
+                GFile *new = g_file_get_parent ( pd->current_dir );
+               if ( new ){
+                   g_object_unref ( pd->current_dir );
+                   pd->current_dir = new;
+                   free_list (pd);
+                   get_file_browser ( sw );
+                   return RESET_DIALOG;
+               }
+            } else if ( pd->array[selected_line].type == DIRECTORY ) {
+                GFile *new = g_file_new_for_path ( pd->array[selected_line].path );
+                g_object_unref ( pd->current_dir );
+                pd->current_dir = new;
                 free_list (pd);
                 get_file_browser ( sw );
                 return RESET_DIALOG;
@@ -167,11 +188,29 @@ static ModeMode file_browser_mode_result ( Mode *sw, int mretv, char **input, un
                 char *d = g_strescape ( pd->array[selected_line].path,NULL );
                 char *cmd = g_strdup_printf("xdg-open '%s'", d );
                 g_free(d);
-                helper_execute_command ( pd->current_dir,cmd, FALSE );
-                g_free ( cmd ); 
+                char *cdir = g_file_get_path ( pd->current_dir );
+                helper_execute_command ( cdir,cmd, FALSE );
+                g_free ( cdir );
+                g_free ( cmd );
                 return MODE_EXIT;
             }
         }
+        retv = RELOAD_DIALOG;
+    } else if ( (mretv&MENU_CUSTOM_INPUT) && *input ) {
+        char *p = rofi_expand_path ( *input );
+        char *dir = g_filename_from_utf8 ( p, -1, NULL, NULL, NULL );
+        g_free (p);
+        if ( g_file_test ( dir, G_FILE_TEST_EXISTS )  )
+        {
+            if ( g_file_test ( dir, G_FILE_TEST_IS_DIR ) ){
+                g_object_unref ( pd->current_dir );
+                pd->current_dir = g_file_new_for_path ( dir );
+                g_free ( dir );
+                return RESET_DIALOG;
+            }
+
+        }
+        g_free ( dir );
         retv = RELOAD_DIALOG;
     } else if ( ( mretv & MENU_ENTRY_DELETE ) == MENU_ENTRY_DELETE ) {
         retv = RELOAD_DIALOG;
@@ -184,7 +223,7 @@ static void file_browser_mode_destroy ( Mode *sw )
 {
     FileBrowserModePrivateData *pd = (FileBrowserModePrivateData *) mode_get_private_data ( sw );
     if ( pd != NULL ) {
-        g_free( pd->current_dir );
+        g_object_unref ( pd->current_dir );
         free_list ( pd );
         g_free ( pd );
         mode_set_private_data ( sw, NULL );
@@ -199,10 +238,12 @@ static char *_get_display_value ( const Mode *sw, unsigned int selected_line, G_
     if ( !get_entry ) return NULL;
     if ( pd->array[selected_line].type == DIRECTORY ){
         return g_strdup_printf ( " %s", pd->array[selected_line].name);
+    } else if ( pd->array[selected_line].type == UP ){
+        return g_strdup( " ..");
     } else {
         return g_strdup_printf ( " %s", pd->array[selected_line].name);
     }
-    return get_entry ? g_strdup(pd->array[selected_line].name): NULL; 
+    return get_entry ? g_strdup(pd->array[selected_line].name): NULL;
 }
 
 /**
