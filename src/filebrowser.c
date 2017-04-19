@@ -245,7 +245,7 @@ static char *_get_display_value ( const Mode *sw, unsigned int selected_line, G_
     } else {
         return g_strdup_printf ( " %s", pd->array[selected_line].name);
     }
-    return get_entry ? g_strdup(pd->array[selected_line].name): NULL;
+    return g_strdup("n/a");
 }
 
 /**
