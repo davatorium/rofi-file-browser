@@ -189,7 +189,7 @@ static ModeMode file_browser_mode_result ( Mode *sw, int mretv, char **input, un
                 char *cmd = g_strdup_printf("xdg-open '%s'", d );
                 g_free(d);
                 char *cdir = g_file_get_path ( pd->current_dir );
-                helper_execute_command ( cdir,cmd, FALSE );
+                helper_execute_command ( cdir,cmd, FALSE,NULL );
                 g_free ( cdir );
                 g_free ( cmd );
                 return MODE_EXIT;
@@ -257,7 +257,7 @@ static char *_get_display_value ( const Mode *sw, unsigned int selected_line, G_
  *
  * @param returns try when a match.
  */
-static int file_browser_token_match ( const Mode *sw, GRegex **tokens, unsigned int index )
+static int file_browser_token_match ( const Mode *sw, rofi_int_matcher **tokens, unsigned int index )
 {
     FileBrowserModePrivateData *pd = (FileBrowserModePrivateData *) mode_get_private_data ( sw );
 
