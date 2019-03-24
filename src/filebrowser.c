@@ -37,6 +37,8 @@
 
 #include <stdint.h>
 
+#include <rofi/rofi-icon-fetcher.h>
+
 G_MODULE_EXPORT Mode mode;
 
 /**
@@ -46,18 +48,26 @@ enum FBFileType {
     UP,
     DIRECTORY,
     RFILE,
+    NUM_FILE_TYPES,
+};
+const char *icon_name[NUM_FILE_TYPES] =
+{
+    "go-up",
+    "folder",
+    "gtk-file"
 };
 typedef struct {
     char *name;
     char *path;
     enum FBFileType type;
+    uint32_t        icon_fetch_uid;
 } FBFile;
 
 typedef struct
 {
-    GFile *current_dir;
-    FBFile *array;
-    unsigned int array_length;
+    GFile           *current_dir;
+    FBFile          *array;
+    unsigned int    array_length;
 } FileBrowserModePrivateData;
 
 static void free_list ( FileBrowserModePrivateData *pd )
@@ -104,6 +114,7 @@ static void get_file_browser (  Mode *sw )
                     pd->array[pd->array_length].name = g_strdup ( ".." );
                     pd->array[pd->array_length].path = NULL;
                     pd->array[pd->array_length].type = UP;
+                    pd->array[pd->array_length].icon_fetch_uid = 0;
                     pd->array_length++;
                     continue;
 
@@ -126,6 +137,7 @@ static void get_file_browser (  Mode *sw )
                     pd->array[pd->array_length].name = g_filename_to_utf8 ( rd->d_name, -1, NULL, NULL, NULL);
                     pd->array[pd->array_length].path = g_build_filename ( cdir, rd->d_name, NULL );
                     pd->array[pd->array_length].type = (rd->d_type == DT_DIR)? DIRECTORY: RFILE;
+                    pd->array[pd->array_length].icon_fetch_uid = 0;
                     pd->array_length++;
             }
         }
@@ -239,11 +251,11 @@ static char *_get_display_value ( const Mode *sw, unsigned int selected_line, G_
     // Only return the string if requested, otherwise only set state.
     if ( !get_entry ) return NULL;
     if ( pd->array[selected_line].type == DIRECTORY ){
-        return g_strdup_printf ( " %s", pd->array[selected_line].name);
+        return g_strdup ( pd->array[selected_line].name);
     } else if ( pd->array[selected_line].type == UP ){
-        return g_strdup( " ..");
+        return g_strdup( " ..");
     } else {
-        return g_strdup_printf ( " %s", pd->array[selected_line].name);
+        return g_strdup ( pd->array[selected_line].name);
     }
     return g_strdup("n/a");
 }
@@ -265,11 +277,36 @@ static int file_browser_token_match ( const Mode *sw, rofi_int_matcher **tokens,
     return helper_token_match ( tokens, pd->array[index].name);
 }
 
+static cairo_surface_t *_get_icon ( const Mode *sw, unsigned int selected_line, int height )
+{
+    FileBrowserModePrivateData *pd = (FileBrowserModePrivateData *) mode_get_private_data ( sw );
+    g_return_val_if_fail ( pd->array != NULL, NULL );
+    FBFile *dr = &( pd->array[selected_line] );
+    if ( dr->icon_fetch_uid > 0 ) {
+        return rofi_icon_fetcher_get ( dr->icon_fetch_uid );
+    }
+    dr->icon_fetch_uid = rofi_icon_fetcher_query ( icon_name[dr->type], height );
+    return rofi_icon_fetcher_get ( dr->icon_fetch_uid );
+}
+
+static char * _get_message ( const Mode *sw )
+{
+    FileBrowserModePrivateData *pd = (FileBrowserModePrivateData *) mode_get_private_data ( sw );
+    if ( pd->current_dir ) {
+        char *dirname = g_file_get_parse_name ( pd->current_dir );
+        char *str = g_markup_printf_escaped("<b>Current directory:</b> %s", dirname);
+        g_free ( dirname );
+        return str;
+    }
+    return "n/a";
+}
+
 
 Mode mode =
 {
+    .display_name       = NULL,
     .abi_version        = ABI_VERSION,
-    .name               = "file_browser",
+    .name               = "file-browser",
     .cfg_name_key       = "display-file_browser",
     ._init              = file_browser_mode_init,
     ._get_num_entries   = file_browser_mode_get_num_entries,
@@ -277,7 +314,8 @@ Mode mode =
     ._destroy           = file_browser_mode_destroy,
     ._token_match       = file_browser_token_match,
     ._get_display_value = _get_display_value,
-    ._get_message       = NULL,
+    ._get_icon          = _get_icon,
+    ._get_message       = _get_message,
     ._get_completion    = NULL,
     ._preprocess_input  = NULL,
     .private_data       = NULL,
