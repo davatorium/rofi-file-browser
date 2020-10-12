@@ -197,8 +197,7 @@ static ModeMode file_browser_mode_result ( Mode *sw, int mretv, char **input, un
                 get_file_browser ( sw );
                 return RESET_DIALOG;
             } else if ( pd->array[selected_line].type == RFILE ) {
-                char *d = g_strescape ( pd->array[selected_line].path,NULL );
-                char *cmd = g_strdup_printf("xdg-open '%s'", d );
+                char *cmd = g_strdup_printf("xdg-open '%s'", pd->array[selected_line].path );
                 g_free(d);
                 char *cdir = g_file_get_path ( pd->current_dir );
                 helper_execute_command ( cdir,cmd, FALSE,NULL );
